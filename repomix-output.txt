@@ -1,3 +1,62 @@
+This file is a merged representation of a subset of the codebase, containing specifically included files, combined into a single document by Repomix.
+
+================================================================
+File Summary
+================================================================
+
+Purpose:
+--------
+This file contains a packed representation of the entire repository's contents.
+It is designed to be easily consumable by AI systems for analysis, code review,
+or other automated processes.
+
+File Format:
+------------
+The content is organized as follows:
+1. This summary section
+2. Repository information
+3. Directory structure
+4. Multiple file entries, each consisting of:
+  a. A separator line (================)
+  b. The file path (File: path/to/file)
+  c. Another separator line
+  d. The full contents of the file
+  e. A blank line
+
+Usage Guidelines:
+-----------------
+- This file should be treated as read-only. Any changes should be made to the
+  original repository files, not this packed version.
+- When processing this file, use the file path to distinguish
+  between different files in the repository.
+- Be aware that this file may contain sensitive information. Handle it with
+  the same level of security as you would the original repository.
+
+Notes:
+------
+- Some files may have been excluded based on .gitignore rules and Repomix's configuration
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
+- Only files matching these patterns are included: cherrypiq.js, fix-cherrypiq.sh, install-cherrypiq.sh
+- Files matching patterns in .gitignore are excluded
+- Files matching default ignore patterns are excluded
+
+Additional Info:
+----------------
+
+================================================================
+Directory Structure
+================================================================
+cherrypiq.js
+fix-cherrypiq.sh
+install-cherrypiq.sh
+
+================================================================
+Files
+================================================================
+
+================
+File: cherrypiq.js
+================
 #!/usr/bin/env node
 
 const blessed = require("blessed");
@@ -9,14 +68,6 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
 const clipboardy = require("clipboardy");
-
-// Try to load gpt-tokenizer, fall back to basic counting if not available
-let gptTokenizer = null;
-try {
-  gptTokenizer = require("gpt-tokenizer");
-} catch (e) {
-  // gpt-tokenizer not available - will use basic counting
-}
 
 // Handle update command
 if (process.argv[2] === "update") {
@@ -51,16 +102,8 @@ if (process.argv[2] === "update") {
     // Make sure the script is executable
     fs.chmodSync(path.join(cherrypiqInstallDir, "cherrypiq.js"), "755");
 
-    // Add gpt-tokenizer to package.json
-    console.log("Adding gpt-tokenizer to dependencies...");
-    const packageJsonPath = path.join(cherrypiqInstallDir, "package.json");
-    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
-    packageJson.dependencies = packageJson.dependencies || {};
-    packageJson.dependencies["gpt-tokenizer"] = "^2.4.0";
-    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
-
-    // Install dependencies
-    console.log("Installing dependencies...");
+    // Reinstall dependencies
+    console.log("Reinstalling dependencies...");
     execSync("npm install", { cwd: cherrypiqInstallDir, stdio: "inherit" });
 
     // Relink the package
@@ -891,38 +934,36 @@ async function main() {
     try {
       const content = await readFile(filePath, "utf8");
 
+      // Remove comments but preserve newlines to maintain line count
+      const noComments = content
+        .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
+        .replace(/\/\/.*/g, ""); // Remove single-line comments
+
       // Count non-empty lines
-      const lines = content.split("\n").filter((line) => line.trim());
+      const lines = noComments.split("\n").filter((line) => line.trim());
+
+      // Tokenize the code more accurately
+      const tokens = noComments
+        // Add spaces around operators and punctuation
+        .replace(/([{}()\[\].,;=+\-*/<>!&|%^~?:])/g, " $1 ")
+        // Preserve string literals
+        .replace(/'[^']*'|"[^"]*"|`[^`]*`/g, (match) =>
+          match.replace(/\s/g, "")
+        )
+        // Normalize whitespace
+        .replace(/\s+/g, " ")
+        .trim()
+        // Split into tokens
+        .split(" ")
+        // Remove empty tokens
+        .filter((token) => token.length > 0);
 
       // Count characters excluding whitespace
-      const chars = content.replace(/\s+/g, "").length;
-
-      let tokenCount;
-      if (gptTokenizer) {
-        // Use GPT tokenizer if available
-        tokenCount = gptTokenizer.countTokens(content);
-      } else {
-        // Basic token estimation if gpt-tokenizer not available
-        const noComments = content
-          .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
-          .replace(/\/\/.*/g, ""); // Remove single-line comments
-
-        const tokens = noComments
-          .replace(/([{}()\[\].,;=+\-*/<>!&|%^~?:])/g, " $1 ")
-          .replace(/'[^']*'|"[^"]*"|`[^`]*`/g, (match) =>
-            match.replace(/\s/g, "")
-          )
-          .replace(/\s+/g, " ")
-          .trim()
-          .split(" ")
-          .filter((token) => token.length > 0);
-
-        tokenCount = tokens.length;
-      }
+      const chars = noComments.replace(/\s+/g, "").length;
 
       return {
         lines: lines.length,
-        tokens: tokenCount,
+        tokens: tokens.length,
         chars: chars,
       };
     } catch (error) {
@@ -943,17 +984,13 @@ async function main() {
       totalChars += stats.chars;
     }
 
-    const tokenCounterType = gptTokenizer
-      ? "Using OpenAI's cl100k_base tokenizer\n(same as GPT-3.5/4)"
-      : "Using basic token estimation";
-
     tokenCount.setContent(
       "{bold}Code Statistics{/bold}\n\n" +
         `Selected Files: ${selectedFiles.length}\n` +
         `Lines of Code: ${totalLines}\n` +
-        `${gptTokenizer ? "GPT" : "Estimated"} Tokens: ${totalTokens}\n` +
+        `Estimated Tokens: ${totalTokens}\n` +
         `Characters: ${totalChars}\n\n` +
-        `Note: ${tokenCounterType}`
+        `Note: Comments excluded`
     );
   }
 
@@ -1056,3 +1093,356 @@ main().catch((err) => {
   console.error("Error:", err);
   process.exit(1);
 });
+
+================
+File: fix-cherrypiq.sh
+================
+#!/bin/bash
+
+# fix-cherrypiq.sh
+# This script fixes a broken cherrypiq installation
+
+# Save the current directory
+ORIGINAL_DIR=$(pwd)
+
+echo "Fixing cherrypiq installation..."
+
+# First, uninstall the broken installation
+echo "Step 1: Uninstalling broken cherrypiq..."
+
+# Remove any existing symlinks in common paths
+for path in "/opt/homebrew/bin/cherrypiq" "/usr/local/bin/cherrypiq" "/usr/bin/cherrypiq"; do
+    if [ -f "$path" ]; then
+        echo "Removing symlink at $path..."
+        sudo rm -f "$path" 2>/dev/null || {
+            echo "Failed to remove symlink at $path. You may need to remove it manually:"
+            echo "sudo rm -f $path"
+        }
+    fi
+done
+
+# Remove global npm link
+echo "Removing global npm link..."
+npm unlink -g cherrypiq 2>/dev/null || npm uninstall -g cherrypiq 2>/dev/null
+
+# Remove ranger integration if it exists
+if [ -f /usr/local/bin/ranger-repomix ]; then
+    echo "Removing ranger integration..."
+    sudo rm -f /usr/local/bin/ranger-repomix 2>/dev/null || {
+        echo "Failed to remove ranger integration symlink. You may need to remove it manually:"
+        echo "sudo rm -f /usr/local/bin/ranger-repomix"
+    }
+fi
+
+# Remove cherrypiq directory
+echo "Removing cherrypiq files..."
+if [ -d ~/.cherrypiq ]; then
+    rm -rf ~/.cherrypiq
+    echo "Removed ~/.cherrypiq directory"
+fi
+
+# Now reinstall using local files
+echo "Step 2: Reinstalling cherrypiq from local files..."
+
+# Create directory for the tool
+mkdir -p ~/.cherrypiq
+
+# Check if nodejs and npm are installed
+if ! command -v node &> /dev/null; then
+    echo "Error: Node.js is required but not installed."
+    echo "Please install Node.js and npm first, then run this script again."
+    exit 1
+fi
+
+if ! command -v npm &> /dev/null; then
+    echo "Error: npm is required but not installed."
+    echo "Please install npm first, then run this script again."
+    exit 1
+fi
+
+# Install required packages globally
+echo "Installing global dependencies..."
+npm install -g repomix blessed
+
+# Create package.json
+cat > ~/.cherrypiq/package.json << 'EOF'
+{
+  "name": "cherrypiq",
+  "version": "0.1.0",
+  "description": "Interactive file selector for repomix",
+  "main": "cherrypiq.js",
+  "bin": {
+    "cherrypiq": "./cherrypiq.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81"
+  }
+}
+EOF
+
+# Install local dependencies
+echo "Installing local dependencies..."
+(cd ~/.cherrypiq && npm install)
+
+# Copy the local cherrypiq.js file or download from GitHub if not found
+echo "Setting up cherrypiq script..."
+if [ -f "./cherrypiq.js" ] || [ -f "./cherrypiq.js" ] || [ -f "./index.js" ]; then
+    # Try to copy from local files
+    if [ -f "./cherrypiq.js" ]; then
+        cp ./cherrypiq.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local cherrypiq.js script"
+    elif [ -f "./cherrypiq.js" ]; then
+        cp ./cherrypiq.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local cherrypiq.js script"
+    elif [ -f "./index.js" ]; then
+        cp ./index.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local index.js script"
+    fi
+else
+    # If no local file found, download from GitHub
+    echo "No local script found, downloading from GitHub..."
+    curl -o ~/.cherrypiq/cherrypiq.js https://raw.githubusercontent.com/ya1sec/cherrypiq/main/cherrypiq.js || {
+        echo "Error: Failed to download script from GitHub."
+        echo "Please ensure you're running this script from the cherrypiq repository directory"
+        echo "or have an internet connection to download from GitHub."
+        exit 1
+    }
+fi
+
+# Make the script executable
+chmod +x ~/.cherrypiq/cherrypiq.js
+
+# Create global symlink
+echo "Creating global symlink..."
+(cd ~/.cherrypiq && npm link)
+
+# Setup ranger integration if ranger is installed
+if command -v ranger &> /dev/null; then
+    echo "Ranger detected, installing ranger integration..."
+    if [ -f "./ranger-integration.sh" ]; then
+        cp ./ranger-integration.sh ~/.cherrypiq/ranger-repomix-integration.sh
+    else
+        # Download from GitHub if local file not found
+        curl -o ~/.cherrypiq/ranger-repomix-integration.sh https://raw.githubusercontent.com/ya1sec/cherrypiq/main/ranger-repomix-integration.sh || {
+            echo "Warning: Failed to setup ranger integration."
+            echo "You can try setting it up later by running the installation script again."
+        }
+    fi
+    
+    if [ -f ~/.cherrypiq/ranger-repomix-integration.sh ]; then
+        chmod +x ~/.cherrypiq/ranger-repomix-integration.sh
+        sudo ln -sf ~/.cherrypiq/ranger-repomix-integration.sh /usr/local/bin/ranger-repomix || {
+            echo "Failed to create global symlink for ranger integration. You may need sudo:"
+            echo "sudo ln -sf ~/.cherrypiq/ranger-repomix-integration.sh /usr/local/bin/ranger-repomix"
+        }
+    fi
+fi
+
+# Return to original directory
+cd "$ORIGINAL_DIR"
+
+echo "Installation fixed!"
+echo "You can now use cherrypiq from anywhere."
+echo ""
+echo "Commands:"
+echo "  cherrypiq    - Launch the interactive file selector"
+if command -v ranger &> /dev/null; then
+    echo "  ranger-repomix      - Launch ranger with repomix integration"
+fi
+echo ""
+echo "Enjoy!"
+
+================
+File: install-cherrypiq.sh
+================
+#!/bin/bash
+
+# install-cherrypiq.sh
+# This script installs the cherrypiq tool
+
+# Save the current directory
+ORIGINAL_DIR=$(pwd)
+
+echo "Installing cherrypiq..."
+
+# Create directory for the tool
+mkdir -p ~/.cherrypiq
+
+# Check if nodejs and npm are installed
+if ! command -v node &> /dev/null; then
+    echo "Error: Node.js is required but not installed."
+    echo "Please install Node.js and npm first, then run this script again."
+    exit 1
+fi
+
+if ! command -v npm &> /dev/null; then
+    echo "Error: npm is required but not installed."
+    echo "Please install npm first, then run this script again."
+    exit 1
+fi
+
+# Install required packages
+echo "Installing dependencies..."
+npm install -g repomix blessed clipboardy@2.3.0
+
+# Create package.json
+cat > ~/.cherrypiq/package.json << 'EOF'
+{
+  "name": "cherrypiq",
+  "version": "0.1.0",
+  "description": "Interactive file selector for repomix",
+  "main": "cherrypiq.js",
+  "bin": {
+    "cherrypiq": "./cherrypiq.js"
+  },
+  "dependencies": {
+    "blessed": "^0.1.81",
+    "clipboardy": "^2.3.0"
+  }
+}
+EOF
+
+# Install dependencies in the cherrypiq directory
+echo "Installing local dependencies..."
+(cd ~/.cherrypiq && npm install)
+
+# Install cherrypiq script
+echo "Installing cherrypiq script..."
+if [ -f "cherrypiq.js" ]; then
+    echo "Using local cherrypiq.js..."
+    cp cherrypiq.js ~/.cherrypiq/cherrypiq.js
+else
+    echo "Local cherrypiq.js not found, downloading from GitHub..."
+    curl -o ~/.cherrypiq/cherrypiq.js https://raw.githubusercontent.com/ya1sec/cherrypiq/main/cherrypiq.js || {
+        echo "Error: Failed to download cherrypiq.js from GitHub."
+        echo "Please ensure you have a local copy of cherrypiq.js or internet connection."
+        exit 1
+    }
+fi
+
+# Make the script executable
+chmod +x ~/.cherrypiq/cherrypiq.js
+
+# Create global symlink
+echo "Creating global symlink..."
+cd ~/.cherrypiq && npm link
+
+# Handle ranger integration if ranger is installed
+if command -v ranger &> /dev/null; then
+    echo "Ranger detected, installing ranger integration..."
+    
+    # Create ranger integration directory
+    mkdir -p ~/.cherrypiq/ranger
+
+    # Install ranger integration script
+    echo "Installing ranger integration script..."
+    if [ -f "ranger-repomix.sh" ]; then
+        echo "Using local ranger-repomix.sh..."
+        cp ranger-repomix.sh ~/.cherrypiq/ranger/ranger-repomix.sh
+    else
+        echo "Creating ranger integration script..."
+        cat > ~/.cherrypiq/ranger/ranger-repomix.sh << 'EOF'
+#!/bin/bash
+
+# ranger-repomix.sh
+# This script helps integrate ranger file manager with repomix
+
+# Create a temporary rc.conf for ranger
+TEMP_RC_CONF="/tmp/ranger_repomix_rc.conf"
+SELECTED_FILES="/tmp/repomix_selected_files.txt"
+
+# Clean up any existing file
+rm -f "$SELECTED_FILES"
+touch "$SELECTED_FILES"
+
+# Create ranger configuration for file selection
+cat > "$TEMP_RC_CONF" << 'RANGERCONF'
+# Repomix integration for ranger
+
+# Mark files with space and save to repomix selection file
+map <space> chain mark_files toggle=True; shell echo %p >> /tmp/repomix_selected_files.txt
+
+# Custom command to run repomix with selected files
+map ,r shell cat /tmp/repomix_selected_files.txt | sort | uniq | tr '\n' ',' | xargs -I{} repomix --include "{}"
+
+# Show help information
+map ,h shell echo "Repomix Integration Help:\n\n<space> - Mark/unmark file for inclusion\n,r - Run repomix with selected files\n,h - Show this help\n,c - Clear selection" | less
+
+# Clear selection
+map ,c shell rm -f /tmp/repomix_selected_files.txt && touch /tmp/repomix_selected_files.txt && echo "Selection cleared"
+RANGERCONF
+
+# Launch ranger with the custom configuration
+echo "=== Ranger-Repomix Integration ==="
+echo "Use <space> to select files for repomix"
+echo "Press ,r to run repomix with selected files"
+echo "Press ,h for help"
+echo "Press ,c to clear selection"
+echo "===============================>"
+
+ranger --cmd="source $TEMP_RC_CONF"
+
+# Clean up
+rm -f "$TEMP_RC_CONF"
+
+# Check if any files were selected and not processed
+if [ -s "$SELECTED_FILES" ]; then
+    echo "You still have selected files that were not processed."
+    echo "Would you like to run repomix with these files? (y/n)"
+    read -r answer
+    
+    if [[ "$answer" =~ ^[Yy]$ ]]; then
+        # Get unique files and convert to comma-separated list
+        INCLUDE_LIST=$(cat "$SELECTED_FILES" | sort | uniq | tr '\n' ',')
+        # Remove trailing comma
+        INCLUDE_LIST=${INCLUDE_LIST%,}
+        
+        echo "Running: repomix --include \"$INCLUDE_LIST\""
+        repomix --include "$INCLUDE_LIST"
+    fi
+fi
+
+# Final cleanup
+rm -f "$SELECTED_FILES"
+echo "Done."
+EOF
+    fi
+
+    # Make ranger integration script executable
+    chmod +x ~/.cherrypiq/ranger/ranger-repomix.sh
+
+    # Create user-local bin directory if it doesn't exist
+    mkdir -p ~/bin
+
+    # Create symlink in user's bin directory
+    ln -sf ~/.cherrypiq/ranger/ranger-repomix.sh ~/bin/ranger-repomix
+    
+    # Add ~/bin to PATH if not already there
+    if [[ ":$PATH:" != *":$HOME/bin:"* ]]; then
+        echo 'export PATH="$HOME/bin:$PATH"' >> ~/.zshrc
+        echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+        echo "Added ~/bin to PATH. Please restart your shell or run: source ~/.zshrc (or ~/.bashrc)"
+    fi
+
+    echo "Ranger integration installed in ~/bin/ranger-repomix"
+fi
+
+# Return to original directory
+cd "$ORIGINAL_DIR"
+
+echo "Installation complete!"
+echo "You can now use cherrypiq from anywhere."
+echo ""
+echo "Commands:"
+echo "  cherrypiq    - Launch the interactive file selector"
+if command -v ranger &> /dev/null; then
+    echo "  ranger-repomix      - Launch ranger with repomix integration"
+fi
+echo ""
+echo "Enjoy!"
+
+
+
+================================================================
+End of Codebase
+================================================================
