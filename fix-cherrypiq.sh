@@ -3,16 +3,24 @@
 # fix-cherrypiq.sh
 # This script fixes a broken cherrypiq installation
 
+# Save the current directory
+ORIGINAL_DIR=$(pwd)
+
 echo "Fixing cherrypiq installation..."
 
 # First, uninstall the broken installation
 echo "Step 1: Uninstalling broken cherrypiq..."
 
-# Remove the broken symlink
-if [ -f /opt/homebrew/bin/cherrypiq ]; then
-    echo "Removing broken symlink at /opt/homebrew/bin/cherrypiq..."
-    sudo rm -f /opt/homebrew/bin/cherrypiq
-fi
+# Remove any existing symlinks in common paths
+for path in "/opt/homebrew/bin/cherrypiq" "/usr/local/bin/cherrypiq" "/usr/bin/cherrypiq"; do
+    if [ -f "$path" ]; then
+        echo "Removing symlink at $path..."
+        sudo rm -f "$path" 2>/dev/null || {
+            echo "Failed to remove symlink at $path. You may need to remove it manually:"
+            echo "sudo rm -f $path"
+        }
+    fi
+done
 
 # Remove global npm link
 echo "Removing global npm link..."
@@ -21,7 +29,10 @@ npm unlink -g cherrypiq 2>/dev/null || npm uninstall -g cherrypiq 2>/dev/null
 # Remove ranger integration if it exists
 if [ -f /usr/local/bin/ranger-repomix ]; then
     echo "Removing ranger integration..."
-    sudo rm -f /usr/local/bin/ranger-repomix 2>/dev/null
+    sudo rm -f /usr/local/bin/ranger-repomix 2>/dev/null || {
+        echo "Failed to remove ranger integration symlink. You may need to remove it manually:"
+        echo "sudo rm -f /usr/local/bin/ranger-repomix"
+    }
 fi
 
 # Remove cherrypiq directory
@@ -52,7 +63,7 @@ fi
 
 # Install required packages globally
 echo "Installing global dependencies..."
-npm install -g repomix
+npm install -g repomix blessed
 
 # Create package.json
 cat > ~/.cherrypiq/package.json << 'EOF'
@@ -70,50 +81,66 @@ cat > ~/.cherrypiq/package.json << 'EOF'
 }
 EOF
 
-# Copy the local cherrypiq.js file
-echo "Copying cherrypiq script..."
-# Check for different possible filenames
-if [ -f "./cherrypiq.js" ]; then
-    cp ./cherrypiq.js ~/.cherrypiq/cherrypiq.js
-    echo "Copied local cherrypiq.js script"
-elif [ -f "./cherrypick.js" ]; then
-    cp ./cherrypick.js ~/.cherrypiq/cherrypiq.js
-    echo "Copied local cherrypick.js script"
-elif [ -f "./index.js" ]; then
-    cp ./index.js ~/.cherrypiq/cherrypiq.js
-    echo "Copied local index.js script"
+# Install local dependencies
+echo "Installing local dependencies..."
+(cd ~/.cherrypiq && npm install)
+
+# Copy the local cherrypiq.js file or download from GitHub if not found
+echo "Setting up cherrypiq script..."
+if [ -f "./cherrypiq.js" ] || [ -f "./cherrypiq.js" ] || [ -f "./index.js" ]; then
+    # Try to copy from local files
+    if [ -f "./cherrypiq.js" ]; then
+        cp ./cherrypiq.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local cherrypiq.js script"
+    elif [ -f "./cherrypiq.js" ]; then
+        cp ./cherrypiq.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local cherrypiq.js script"
+    elif [ -f "./index.js" ]; then
+        cp ./index.js ~/.cherrypiq/cherrypiq.js
+        echo "Copied local index.js script"
+    fi
 else
-    echo "Error: Could not find cherrypiq script file."
-    echo "Please make sure you're running this script from the cherrypiq repository directory."
-    echo "Looking for one of these files: cherrypiq.js, cherrypick.js, or index.js"
-    exit 1
+    # If no local file found, download from GitHub
+    echo "No local script found, downloading from GitHub..."
+    curl -o ~/.cherrypiq/cherrypiq.js https://raw.githubusercontent.com/ya1sec/cherrypiq/main/cherrypiq.js || {
+        echo "Error: Failed to download script from GitHub."
+        echo "Please ensure you're running this script from the cherrypiq repository directory"
+        echo "or have an internet connection to download from GitHub."
+        exit 1
+    }
 fi
 
 # Make the script executable
 chmod +x ~/.cherrypiq/cherrypiq.js
 
-# Install local dependencies
-echo "Installing local dependencies..."
-cd ~/.cherrypiq && npm install
-
 # Create global symlink
 echo "Creating global symlink..."
-cd ~/.cherrypiq && npm link
+(cd ~/.cherrypiq && npm link)
 
-# Copy ranger integration script if ranger is installed
+# Setup ranger integration if ranger is installed
 if command -v ranger &> /dev/null; then
     echo "Ranger detected, installing ranger integration..."
     if [ -f "./ranger-integration.sh" ]; then
         cp ./ranger-integration.sh ~/.cherrypiq/ranger-repomix-integration.sh
+    else
+        # Download from GitHub if local file not found
+        curl -o ~/.cherrypiq/ranger-repomix-integration.sh https://raw.githubusercontent.com/ya1sec/cherrypiq/main/ranger-repomix-integration.sh || {
+            echo "Warning: Failed to setup ranger integration."
+            echo "You can try setting it up later by running the installation script again."
+        }
+    fi
+    
+    if [ -f ~/.cherrypiq/ranger-repomix-integration.sh ]; then
         chmod +x ~/.cherrypiq/ranger-repomix-integration.sh
         sudo ln -sf ~/.cherrypiq/ranger-repomix-integration.sh /usr/local/bin/ranger-repomix || {
             echo "Failed to create global symlink for ranger integration. You may need sudo:"
             echo "sudo ln -sf ~/.cherrypiq/ranger-repomix-integration.sh /usr/local/bin/ranger-repomix"
         }
-    else
-        echo "Warning: Could not find ranger-integration.sh file. Ranger integration will not be available."
     fi
 fi
+
+# Return to original directory
+cd "$ORIGINAL_DIR"
 
 echo "Installation fixed!"
 echo "You can now use cherrypiq from anywhere."

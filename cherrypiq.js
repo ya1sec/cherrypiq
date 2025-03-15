@@ -9,6 +9,67 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
 
+// Handle update command
+if (process.argv[2] === "update") {
+  const currentDir = process.cwd();
+  const cherrypiqJs = path.join(currentDir, "cherrypiq.js");
+  const cherrypiqInstallDir = path.join(process.env.HOME, ".cherrypiq");
+
+  // Check if cherrypiq.js exists in current directory
+  if (!fs.existsSync(cherrypiqJs)) {
+    console.error("Error: cherrypiq.js not found in current directory.");
+    console.error(
+      "Please run this command from the directory containing your modified cherrypiq.js"
+    );
+    process.exit(1);
+  }
+
+  // Check if ~/.cherrypiq exists
+  if (!fs.existsSync(cherrypiqInstallDir)) {
+    console.error("Error: cherrypiq installation directory not found.");
+    console.error("Please install cherrypiq first using install-cherrypiq.sh");
+    process.exit(1);
+  }
+
+  try {
+    // Copy the local cherrypiq.js to the installation directory
+    console.log("Copying local cherrypiq.js to installation directory...");
+    fs.copyFileSync(
+      cherrypiqJs,
+      path.join(cherrypiqInstallDir, "cherrypiq.js")
+    );
+
+    // Make sure the script is executable
+    fs.chmodSync(path.join(cherrypiqInstallDir, "cherrypiq.js"), "755");
+
+    // Reinstall dependencies
+    console.log("Reinstalling dependencies...");
+    execSync("npm install", { cwd: cherrypiqInstallDir, stdio: "inherit" });
+
+    // Relink the package
+    console.log("Relinking package...");
+    try {
+      // Try to unlink first, but don't error if it fails
+      execSync("npm unlink -g cherrypiq", {
+        cwd: cherrypiqInstallDir,
+        stdio: "inherit",
+      });
+    } catch (e) {
+      // Ignore unlink errors - package might not be linked
+    }
+    // Now link the package
+    execSync("npm link", { cwd: cherrypiqInstallDir, stdio: "inherit" });
+
+    console.log("\nUpdate complete!");
+    console.log("Your local changes have been installed.");
+    console.log("\nYou can now use the updated cherrypiq from anywhere.");
+    process.exit(0);
+  } catch (error) {
+    console.error("Error during update:", error.message);
+    process.exit(1);
+  }
+}
+
 // Check if repomix is installed
 let repomixInstalled = false;
 try {
@@ -241,7 +302,7 @@ function setupUI() {
     width: "100%",
     height: 3,
     content:
-      "{bold}cherrypiq{/bold} | {bold}j/k{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
+      "{bold}cherrypiq{/bold} | {bold}h/j/k/l{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
       (rangerInstalled ? "" : " (not installed)") +
       " | {bold}q{/bold}: quit",
     tags: true,
@@ -338,7 +399,7 @@ async function main() {
     visibleItems.forEach((item, idx) => {
       const isSelected = idx + scrollOffset === selectedIndex;
       let prefix = item.isDir ? "[+] " : "    ";
-      prefix = item.selected ? "{green-fg}[✓]{/green-fg} " : prefix;
+      prefix = item.selected ? "{red-fg}[✓]{/red-fg} " : prefix;
 
       let display = item.name;
       if (item.isDir) {
@@ -347,10 +408,13 @@ async function main() {
       if (item.ignored) {
         display = "{grey-fg}" + display + "{/grey-fg}";
       }
+      if (item.selected) {
+        display = "{yellow-fg}" + display + "{/yellow-fg}";
+      }
 
       // Highlight selected item
       if (isSelected) {
-        content += `{blue-bg}{white-fg}${prefix}${display}{/white-fg}{/blue-bg}\n`;
+        content += `{blue-bg}${prefix}${display}{/blue-bg}\n`;
       } else {
         content += `${prefix}${display}\n`;
       }
@@ -440,7 +504,7 @@ async function main() {
   });
 
   // Enter: open directory
-  screen.key("enter", async () => {
+  screen.key(["enter", "l", "o", "right"], async () => {
     const item = currentItems[selectedIndex];
     if (item && item.isDir) {
       currentDir = item.path;
