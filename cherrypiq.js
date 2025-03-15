@@ -48,10 +48,17 @@ if (process.argv[2] === "update") {
 
     // Relink the package
     console.log("Relinking package...");
-    execSync("npm unlink && npm link", {
-      cwd: cherrypiqInstallDir,
-      stdio: "inherit",
-    });
+    try {
+      // Try to unlink first, but don't error if it fails
+      execSync("npm unlink -g cherrypiq", {
+        cwd: cherrypiqInstallDir,
+        stdio: "inherit",
+      });
+    } catch (e) {
+      // Ignore unlink errors - package might not be linked
+    }
+    // Now link the package
+    execSync("npm link", { cwd: cherrypiqInstallDir, stdio: "inherit" });
 
     console.log("\nUpdate complete!");
     console.log("Your local changes have been installed.");
@@ -295,7 +302,7 @@ function setupUI() {
     width: "100%",
     height: 3,
     content:
-      "{bold}cherrypiq{/bold} | {bold}j/k{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
+      "{bold}cherrypiq{/bold} | {bold}h/j/k/l{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
       (rangerInstalled ? "" : " (not installed)") +
       " | {bold}q{/bold}: quit",
     tags: true,
@@ -392,7 +399,7 @@ async function main() {
     visibleItems.forEach((item, idx) => {
       const isSelected = idx + scrollOffset === selectedIndex;
       let prefix = item.isDir ? "[+] " : "    ";
-      prefix = item.selected ? "{green-fg}[✓]{/green-fg} " : prefix;
+      prefix = item.selected ? "{red-fg}[✓]{/red-fg} " : prefix;
 
       let display = item.name;
       if (item.isDir) {
@@ -401,10 +408,13 @@ async function main() {
       if (item.ignored) {
         display = "{grey-fg}" + display + "{/grey-fg}";
       }
+      if (item.selected) {
+        display = "{yellow-fg}" + display + "{/yellow-fg}";
+      }
 
       // Highlight selected item
       if (isSelected) {
-        content += `{blue-bg}{white-fg}${prefix}${display}{/white-fg}{/blue-bg}\n`;
+        content += `{blue-bg}${prefix}${display}{/blue-bg}\n`;
       } else {
         content += `${prefix}${display}\n`;
       }
