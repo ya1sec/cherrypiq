@@ -1,0 +1,12 @@
+{
+	"name": "cherrypiq",
+	"version": "0.1.0",
+	"description": "Interactive file selector for repomix",
+	"main": "cherrypiq.js",
+	"bin": {
+		"cherrypiq": "./cherrypiq.js"
+	},
+	"dependencies": {
+		"blessed": "^0.1.81"
+	}
+}
