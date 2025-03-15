@@ -8,7 +8,6 @@ const { promisify } = require("util");
 const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
-const clipboardy = require("clipboardy");
 
 // Try to load gpt-tokenizer, fall back to basic counting if not available
 let gptTokenizer = null;
@@ -313,10 +312,9 @@ async function runRepomixToClipboard(selectedFiles) {
   const includePattern = relativePaths.join(",");
 
   try {
-    const output = execSync(`npx repomix --include "${includePattern}"`, {
-      encoding: "utf8",
+    execSync(`npx repomix --include "${includePattern}" --copy`, {
+      stdio: "inherit",
     });
-    await clipboardy.write(output);
     return true;
   } catch (e) {
     console.error("Failed to run repomix:", e.message);

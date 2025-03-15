@@ -64,3 +64,5 @@ Thumbs.db
 # cherrypiq specific files
 .repomix-selected-files
 .repomix-ranger-rc.conf 
+
+repomix-output.txt

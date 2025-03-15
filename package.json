@@ -8,7 +8,6 @@
 	},
 	"dependencies": {
 		"blessed": "^0.1.81",
-		"clipboardy": "^3.0.0",
 		"gpt-tokenizer": "^2.9.0"
 	}
 }
