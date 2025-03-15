@@ -9,6 +9,60 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
 
+// Handle update command
+if (process.argv[2] === "update") {
+  const currentDir = process.cwd();
+  const cherrypiqJs = path.join(currentDir, "cherrypiq.js");
+  const cherrypiqInstallDir = path.join(process.env.HOME, ".cherrypiq");
+
+  // Check if cherrypiq.js exists in current directory
+  if (!fs.existsSync(cherrypiqJs)) {
+    console.error("Error: cherrypiq.js not found in current directory.");
+    console.error(
+      "Please run this command from the directory containing your modified cherrypiq.js"
+    );
+    process.exit(1);
+  }
+
+  // Check if ~/.cherrypiq exists
+  if (!fs.existsSync(cherrypiqInstallDir)) {
+    console.error("Error: cherrypiq installation directory not found.");
+    console.error("Please install cherrypiq first using install-cherrypiq.sh");
+    process.exit(1);
+  }
+
+  try {
+    // Copy the local cherrypiq.js to the installation directory
+    console.log("Copying local cherrypiq.js to installation directory...");
+    fs.copyFileSync(
+      cherrypiqJs,
+      path.join(cherrypiqInstallDir, "cherrypiq.js")
+    );
+
+    // Make sure the script is executable
+    fs.chmodSync(path.join(cherrypiqInstallDir, "cherrypiq.js"), "755");
+
+    // Reinstall dependencies
+    console.log("Reinstalling dependencies...");
+    execSync("npm install", { cwd: cherrypiqInstallDir, stdio: "inherit" });
+
+    // Relink the package
+    console.log("Relinking package...");
+    execSync("npm unlink && npm link", {
+      cwd: cherrypiqInstallDir,
+      stdio: "inherit",
+    });
+
+    console.log("\nUpdate complete!");
+    console.log("Your local changes have been installed.");
+    console.log("\nYou can now use the updated cherrypiq from anywhere.");
+    process.exit(0);
+  } catch (error) {
+    console.error("Error during update:", error.message);
+    process.exit(1);
+  }
+}
+
 // Check if repomix is installed
 let repomixInstalled = false;
 try {
@@ -440,7 +494,7 @@ async function main() {
   });
 
   // Enter: open directory
-  screen.key("enter", async () => {
+  screen.key(["enter", "l", "o", "right"], async () => {
     const item = currentItems[selectedIndex];
     if (item && item.isDir) {
       currentDir = item.path;
