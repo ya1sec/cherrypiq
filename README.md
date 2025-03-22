@@ -2,6 +2,10 @@
 
 An interactive file selector for [Repomix](https://github.com/yamadashy/repomix) with vim-like navigation and Ranger integration.
 
+<p align="center">
+  <img src="image.png" width="600" alt="cherrypiq">
+</p>
+
 ## What is this?
 
 cherrypiq is a terminal-based UI tool that lets you:

@@ -962,13 +962,14 @@ async function main() {
         "{red-fg}bat is not installed. Install it for file preview functionality.{/red-fg}"
       );
       previewBox.show();
+      previewBox.focus();
       return;
     }
 
     try {
       const batCmd = getBatCommand();
       const output = execSync(
-        `${batCmd} --color=always --style=numbers,changes "${filePath}"`,
+        `${batCmd} --paging=always --color=always --style=numbers,changes "${filePath}"`,
         {
           encoding: "utf8",
           maxBuffer: 10 * 1024 * 1024, // 10MB buffer
@@ -977,11 +978,42 @@ async function main() {
 
       previewBox.setContent(output);
       previewBox.show();
+      previewBox.focus();
+
+      // Prevent key events from bubbling up when preview is focused
+      const preventBubbling = (ch, key) => {
+        if (
+          previewBox.visible &&
+          [
+            "j",
+            "k",
+            "g",
+            "G",
+            "up",
+            "down",
+            "pageup",
+            "pagedown",
+            "home",
+            "end",
+          ].includes(key.name)
+        ) {
+          return false;
+        }
+      };
+
+      screen.on("keypress", preventBubbling);
+
+      // Remove the event listener when preview is closed
+      previewBox.once("hide", () => {
+        screen.removeListener("keypress", preventBubbling);
+        list.focus();
+      });
     } catch (error) {
       previewBox.setContent(
         `{red-fg}Error previewing file: ${error.message}{/red-fg}`
       );
       previewBox.show();
+      previewBox.focus();
     }
   }
 
@@ -996,8 +1028,10 @@ async function main() {
 
   // Add escape key to close preview
   screen.key("escape", () => {
-    previewBox.hide();
-    screen.render();
+    if (previewBox.visible) {
+      previewBox.hide();
+      screen.render();
+    }
   });
 
   // Add key bindings for clipboard and prompt features
