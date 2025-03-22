@@ -9,6 +9,14 @@ const readdir = promisify(fs.readdir);
 const stat = promisify(fs.stat);
 const readFile = promisify(fs.readFile);
 
+// Try to load gpt-tokenizer, fall back to basic counting if not available
+let gptTokenizer = null;
+try {
+  gptTokenizer = require("gpt-tokenizer");
+} catch (e) {
+  // gpt-tokenizer not available - will use basic counting
+}
+
 // Handle update command
 if (process.argv[2] === "update") {
   const currentDir = process.cwd();
@@ -42,8 +50,16 @@ if (process.argv[2] === "update") {
     // Make sure the script is executable
     fs.chmodSync(path.join(cherrypiqInstallDir, "cherrypiq.js"), "755");
 
-    // Reinstall dependencies
-    console.log("Reinstalling dependencies...");
+    // Add gpt-tokenizer to package.json
+    console.log("Adding gpt-tokenizer to dependencies...");
+    const packageJsonPath = path.join(cherrypiqInstallDir, "package.json");
+    const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    packageJson.dependencies = packageJson.dependencies || {};
+    packageJson.dependencies["gpt-tokenizer"] = "^2.4.0";
+    fs.writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2));
+
+    // Install dependencies
+    console.log("Installing dependencies...");
     execSync("npm install", { cwd: cherrypiqInstallDir, stdio: "inherit" });
 
     // Relink the package
@@ -89,6 +105,30 @@ try {
   rangerInstalled = true;
 } catch (e) {
   // Ranger not installed - that's fine
+}
+
+// Check if bat is installed
+let batInstalled = false;
+try {
+  execSync("which bat", { stdio: "ignore" });
+  batInstalled = true;
+} catch (e) {
+  try {
+    execSync("which batcat", { stdio: "ignore" }); // For Ubuntu/Debian
+    batInstalled = true;
+  } catch (e) {
+    // bat not installed - that's fine
+  }
+}
+
+// Get bat command (handles both 'bat' and 'batcat' names)
+function getBatCommand() {
+  try {
+    execSync("which bat", { stdio: "ignore" });
+    return "bat";
+  } catch (e) {
+    return "batcat"; // For Ubuntu/Debian
+  }
 }
 
 // Get gitignore patterns
@@ -256,6 +296,122 @@ function runRepomix(selectedFiles) {
   }
 }
 
+// Run repomix and copy output to clipboard
+async function runRepomixToClipboard(selectedFiles) {
+  if (selectedFiles.length === 0) {
+    console.log("No files selected. Exiting.");
+    process.exit(0);
+  }
+
+  // Convert absolute paths to relative paths
+  const relativePaths = selectedFiles.map((file) =>
+    path.relative(process.cwd(), file)
+  );
+
+  // Create include pattern for repomix
+  const includePattern = relativePaths.join(",");
+
+  try {
+    execSync(`npx repomix --include "${includePattern}" --copy`, {
+      stdio: "inherit",
+    });
+    return true;
+  } catch (e) {
+    console.error("Failed to run repomix:", e.message);
+    return false;
+  }
+}
+
+// Create prompt input box
+function createPromptInput(screen) {
+  const promptBox = blessed.box({
+    top: "center",
+    left: "center",
+    width: "80%",
+    height: 7,
+    hidden: true, // Hide by default
+    content: "{bold}Enter Prompt for Repomix{/bold}",
+    tags: true,
+    border: {
+      type: "line",
+    },
+    style: {
+      border: {
+        fg: "white",
+      },
+      focus: {
+        border: {
+          fg: "green",
+        },
+      },
+    },
+  });
+
+  const promptInput = blessed.textbox({
+    parent: promptBox,
+    top: 2,
+    left: 1,
+    right: 1,
+    height: 3,
+    inputOnFocus: true,
+    border: {
+      type: "line",
+    },
+    style: {
+      border: {
+        fg: "white",
+      },
+      focus: {
+        border: {
+          fg: "green",
+        },
+      },
+    },
+  });
+
+  // Add a small help text
+  const helpText = blessed.box({
+    parent: promptBox,
+    bottom: 0,
+    left: 1,
+    content: "Enter: Submit | Esc: Cancel",
+    style: {
+      fg: "gray",
+    },
+  });
+
+  return { promptBox, promptInput };
+}
+
+// Run repomix with custom prompt
+async function runRepomixWithPrompt(selectedFiles, prompt) {
+  if (selectedFiles.length === 0) {
+    console.log("No files selected. Exiting.");
+    process.exit(0);
+  }
+
+  // Convert absolute paths to relative paths
+  const relativePaths = selectedFiles.map((file) =>
+    path.relative(process.cwd(), file)
+  );
+
+  // Create include pattern for repomix
+  const includePattern = relativePaths.join(",");
+
+  try {
+    const output = execSync(
+      `npx repomix --include "${includePattern}" --prompt "${prompt}"`,
+      {
+        encoding: "utf8",
+      }
+    );
+    return output;
+  } catch (e) {
+    console.error("Failed to run repomix:", e.message);
+    return null;
+  }
+}
+
 // Setup blessed UI
 function setupUI() {
   const screen = blessed.screen({
@@ -264,12 +420,12 @@ function setupUI() {
     fullUnicode: true,
   });
 
-  // Custom file list using a box instead of blessed list
-  const list = blessed.box({
+  // Left column for file navigation
+  const leftColumn = blessed.box({
     top: 0,
     left: 0,
-    width: "100%",
-    height: "90%",
+    width: "60%",
+    height: "100%",
     border: {
       type: "line",
     },
@@ -278,6 +434,15 @@ function setupUI() {
         fg: "white",
       },
     },
+  });
+
+  // File list
+  const list = blessed.box({
+    parent: leftColumn,
+    top: 1, // Leave space for path display
+    left: 0,
+    width: "100%-2", // Account for borders
+    height: "100%-4", // Account for borders and path display
     keys: true,
     vi: true,
     mouse: true,
@@ -295,34 +460,30 @@ function setupUI() {
     },
   });
 
-  // Status bar
-  const statusBar = blessed.box({
-    bottom: 0,
-    left: 0,
-    width: "100%",
-    height: 3,
-    content:
-      "{bold}cherrypiq{/bold} | {bold}h/j/k/l{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
-      (rangerInstalled ? "" : " (not installed)") +
-      " | {bold}q{/bold}: quit",
-    tags: true,
-    border: {
-      type: "line",
-    },
-    style: {
-      border: {
-        fg: "white",
-      },
-    },
-  });
-
-  // Selected count display
-  const selectedCount = blessed.box({
-    bottom: 0,
+  // Right column
+  const rightColumn = blessed.box({
+    top: 0,
     right: 0,
-    width: 20,
-    height: 3,
-    content: "Selected: 0",
+    width: "40%",
+    height: "100%",
+    border: {
+      type: "line",
+    },
+    style: {
+      border: {
+        fg: "white",
+      },
+    },
+  });
+
+  // Token count display in top half of right column
+  const tokenCount = blessed.box({
+    parent: rightColumn,
+    top: 1,
+    left: 1,
+    width: "100%-2",
+    height: "30%",
+    content: "Token Count: 0",
     tags: true,
     border: {
       type: "line",
@@ -334,11 +495,50 @@ function setupUI() {
     },
   });
 
-  // Path display
+  // Command help in bottom half of right column
+  const commandHelp = blessed.box({
+    parent: rightColumn,
+    top: "30%",
+    left: 1,
+    width: "100%-2",
+    height: "70%",
+    content:
+      "{bold}Commands{/bold}\n\n" +
+      "Navigation:\n" +
+      "  j/↓: Move down\n" +
+      "  k/↑: Move up\n" +
+      "  g: Go to top\n" +
+      "  G: Go to bottom\n" +
+      "  h/←: Go up dir\n" +
+      "  l/→/enter: Open dir\n\n" +
+      "Selection:\n" +
+      "  space: Select file/dir\n" +
+      "  p: Preview file\n" +
+      "  esc: Close preview\n\n" +
+      "Actions:\n" +
+      "  r: Run repomix\n" +
+      "  c: Copy to clipboard\n" +
+      "  i: Input prompt\n" +
+      "  R: Launch ranger\n" +
+      "  ?: Toggle help\n" +
+      "  q: Quit",
+    tags: true,
+    border: {
+      type: "line",
+    },
+    style: {
+      border: {
+        fg: "white",
+      },
+    },
+  });
+
+  // Path display at top of left column
   const pathDisplay = blessed.box({
+    parent: leftColumn,
     top: 0,
     left: 0,
-    width: "100%",
+    width: "100%-2",
     height: 1,
     content: process.cwd(),
     style: {
@@ -347,17 +547,79 @@ function setupUI() {
     },
   });
 
-  screen.append(list);
-  screen.append(statusBar);
-  screen.append(selectedCount);
+  // Selected count display at bottom of left column
+  const selectedCount = blessed.box({
+    parent: leftColumn,
+    bottom: 0,
+    left: 0,
+    width: "100%-2",
+    height: 1,
+    content: "Selected: 0",
+    tags: true,
+    style: {
+      bg: "blue",
+      fg: "white",
+    },
+  });
 
-  return { screen, list, statusBar, selectedCount, pathDisplay };
+  // Preview popup for bat
+  const previewBox = blessed.box({
+    top: "center",
+    left: "center",
+    width: "80%",
+    height: "80%",
+    hidden: true,
+    border: {
+      type: "line",
+    },
+    style: {
+      border: {
+        fg: "white",
+      },
+    },
+    tags: true,
+    scrollable: true,
+    alwaysScroll: true,
+    keys: true,
+    vi: true,
+    mouse: true,
+  });
+
+  // Prompt input box
+  const { promptBox, promptInput } = createPromptInput(screen);
+
+  screen.append(leftColumn);
+  screen.append(rightColumn);
+  screen.append(previewBox);
+  screen.append(promptBox);
+
+  return {
+    screen,
+    list,
+    pathDisplay,
+    selectedCount,
+    tokenCount,
+    commandHelp,
+    previewBox,
+    promptBox,
+    promptInput,
+  };
 }
 
 // Main function
 async function main() {
   const ui = setupUI();
-  const { screen, list, statusBar, selectedCount } = ui;
+  const {
+    screen,
+    list,
+    pathDisplay,
+    selectedCount,
+    tokenCount,
+    commandHelp,
+    previewBox,
+    promptBox,
+    promptInput,
+  } = ui;
 
   let currentDir = process.cwd();
   let currentItems = [];
@@ -499,7 +761,8 @@ async function main() {
       }
     }
 
-    // Update UI
+    // Update UI and token count
+    await updateTokenCount(selectedFiles, tokenCount);
     renderList();
   });
 
@@ -545,12 +808,12 @@ async function main() {
   // R: launch ranger if installed
   screen.key("R", async () => {
     if (!rangerInstalled) {
-      statusBar.setContent(
+      commandHelp.setContent(
         "{red-bg}Ranger is not installed!{/red-bg} Press any key to continue..."
       );
       screen.render();
       setTimeout(() => {
-        statusBar.setContent(
+        commandHelp.setContent(
           "{bold}cherrypiq{/bold} | {bold}j/k{/bold}: navigate | {bold}space{/bold}: select | {bold}enter{/bold}: open dir | {bold}r{/bold}: run repomix | {bold}R{/bold}: ranger" +
             (rangerInstalled ? "" : " (not installed)") +
             " | {bold}q{/bold}: quit"
@@ -620,6 +883,200 @@ async function main() {
       }
     }
   }
+
+  // Calculate token count for a file
+  async function calculateTokenCount(filePath) {
+    try {
+      const content = await readFile(filePath, "utf8");
+
+      // Count non-empty lines
+      const lines = content.split("\n").filter((line) => line.trim());
+
+      // Count characters excluding whitespace
+      const chars = content.replace(/\s+/g, "").length;
+
+      let tokenCount;
+      if (gptTokenizer) {
+        // Use GPT tokenizer if available
+        tokenCount = gptTokenizer.countTokens(content);
+      } else {
+        // Basic token estimation if gpt-tokenizer not available
+        const noComments = content
+          .replace(/\/\*[\s\S]*?\*\//g, "") // Remove multi-line comments
+          .replace(/\/\/.*/g, ""); // Remove single-line comments
+
+        const tokens = noComments
+          .replace(/([{}()\[\].,;=+\-*/<>!&|%^~?:])/g, " $1 ")
+          .replace(/'[^']*'|"[^"]*"|`[^`]*`/g, (match) =>
+            match.replace(/\s/g, "")
+          )
+          .replace(/\s+/g, " ")
+          .trim()
+          .split(" ")
+          .filter((token) => token.length > 0);
+
+        tokenCount = tokens.length;
+      }
+
+      return {
+        lines: lines.length,
+        tokens: tokenCount,
+        chars: chars,
+      };
+    } catch (error) {
+      return { lines: 0, tokens: 0, chars: 0 };
+    }
+  }
+
+  // Update token count display
+  async function updateTokenCount(selectedFiles, tokenCount) {
+    let totalLines = 0;
+    let totalTokens = 0;
+    let totalChars = 0;
+
+    for (const file of selectedFiles) {
+      const stats = await calculateTokenCount(file);
+      totalLines += stats.lines;
+      totalTokens += stats.tokens;
+      totalChars += stats.chars;
+    }
+
+    const tokenCounterType = gptTokenizer
+      ? "Using OpenAI's cl100k_base tokenizer\n(same as GPT-3.5/4)"
+      : "Using basic token estimation";
+
+    tokenCount.setContent(
+      "{bold}Code Statistics{/bold}\n\n" +
+        `Selected Files: ${selectedFiles.length}\n` +
+        `Lines of Code: ${totalLines}\n` +
+        `${gptTokenizer ? "GPT" : "Estimated"} Tokens: ${totalTokens}\n` +
+        `Characters: ${totalChars}\n\n` +
+        `Note: ${tokenCounterType}`
+    );
+  }
+
+  // Preview file using bat
+  async function previewFile(filePath, previewBox) {
+    if (!batInstalled) {
+      previewBox.setContent(
+        "{red-fg}bat is not installed. Install it for file preview functionality.{/red-fg}"
+      );
+      previewBox.show();
+      previewBox.focus();
+      return;
+    }
+
+    try {
+      const batCmd = getBatCommand();
+      const output = execSync(
+        `${batCmd} --paging=always --color=always --style=numbers,changes "${filePath}"`,
+        {
+          encoding: "utf8",
+          maxBuffer: 10 * 1024 * 1024, // 10MB buffer
+        }
+      );
+
+      previewBox.setContent(output);
+      previewBox.show();
+      previewBox.focus();
+
+      // Prevent key events from bubbling up when preview is focused
+      const preventBubbling = (ch, key) => {
+        if (
+          previewBox.visible &&
+          [
+            "j",
+            "k",
+            "g",
+            "G",
+            "up",
+            "down",
+            "pageup",
+            "pagedown",
+            "home",
+            "end",
+          ].includes(key.name)
+        ) {
+          return false;
+        }
+      };
+
+      screen.on("keypress", preventBubbling);
+
+      // Remove the event listener when preview is closed
+      previewBox.once("hide", () => {
+        screen.removeListener("keypress", preventBubbling);
+        list.focus();
+      });
+    } catch (error) {
+      previewBox.setContent(
+        `{red-fg}Error previewing file: ${error.message}{/red-fg}`
+      );
+      previewBox.show();
+      previewBox.focus();
+    }
+  }
+
+  // Add preview key binding in main()
+  screen.key("p", async () => {
+    const item = currentItems[selectedIndex];
+    if (!item || item.isDir) return;
+
+    await previewFile(item.path, previewBox);
+    screen.render();
+  });
+
+  // Add escape key to close preview
+  screen.key("escape", () => {
+    if (previewBox.visible) {
+      previewBox.hide();
+      screen.render();
+    }
+  });
+
+  // Add key bindings for clipboard and prompt features
+  screen.key("c", async () => {
+    if (!screen.focused.name === "list") return;
+    const success = await runRepomixToClipboard(selectedFiles);
+    if (success) {
+      screen.destroy();
+      console.log("Repomix output copied to clipboard!");
+    }
+  });
+
+  screen.key("i", () => {
+    if (!screen.focused.name === "list") return;
+    promptBox.show();
+    promptInput.clearValue();
+    promptInput.focus();
+    screen.render();
+  });
+
+  promptInput.key(["enter"], async () => {
+    const prompt = promptInput.getValue().trim();
+    if (!prompt) {
+      promptBox.hide();
+      list.focus();
+      screen.render();
+      return;
+    }
+
+    promptBox.hide();
+    screen.render();
+
+    const output = await runRepomixWithPrompt(selectedFiles, prompt);
+    if (output) {
+      screen.destroy();
+      console.log(output);
+    }
+  });
+
+  promptInput.key(["escape"], () => {
+    promptInput.clearValue();
+    promptBox.hide();
+    list.focus();
+    screen.render();
+  });
 
   // Focus handling
   list.focus();

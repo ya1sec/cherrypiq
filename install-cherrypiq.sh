@@ -26,7 +26,7 @@ fi
 
 # Install required packages
 echo "Installing dependencies..."
-npm install -g repomix blessed
+npm install -g repomix blessed clipboardy@2.3.0
 
 # Create package.json
 cat > ~/.cherrypiq/package.json << 'EOF'
@@ -39,7 +39,9 @@ cat > ~/.cherrypiq/package.json << 'EOF'
     "cherrypiq": "./cherrypiq.js"
   },
   "dependencies": {
-    "blessed": "^0.1.81"
+    "blessed": "^0.1.81",
+    "clipboardy": "^2.3.0",
+    "gpt-tokenizer": "^2.4.0"
   }
 }
 EOF
